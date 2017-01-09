@@ -327,6 +327,14 @@ data CRI (a :: ConnectionType) where
 deriving instance Show (CRI a)
 deriving instance Eq (CRI a)
 
+instance Serialize (CRI 'DeviceMgmtConn) where
+  put DeviceMgmtCRI = putTagged 3 (return ())
+  get = getTagged 3 (pure DeviceMgmtCRI)
+
+instance Serialize (CRI 'TunnelConn) where
+  put (TunnelCRI l) = putTagged 4 (put l >> putWord8 0)
+  get = getTagged 4 (TunnelCRI <$> get <* getWord8)
+
   
 data CRD (a :: ConnectionType) where
   DeviceMgmtCRD :: CRD 'DeviceMgmtConn
@@ -334,22 +342,17 @@ data CRD (a :: ConnectionType) where
 
 deriving instance Show (CRD a)
 deriving instance Eq (CRD a)
-
-instance Serialize (CRI 'DeviceMgmtConn) where
-  put DeviceMgmtCRI = putTagged 3 (return ())
-  get = getTagged 3 (pure DeviceMgmtCRI)
-
+  
 instance Serialize (CRD 'DeviceMgmtConn) where
   put DeviceMgmtCRD = putTagged 3 (return ())
   get = getTagged 3 (pure DeviceMgmtCRD)
 
-instance Serialize (CRI 'TunnelConn) where
-  put (TunnelCRI l) = putTagged 4 (put l >> putWord8 0)
-  get = getTagged 4 (TunnelCRI <$> get <* getWord8) 
-
 instance Serialize (CRD 'TunnelConn) where
   put (TunnelCRD addr) = putTagged 4 (put addr)
   get = getTagged 4 (TunnelCRD <$> get)
+
+
+
 
 
 data ConnectRequest a where
@@ -391,7 +394,8 @@ data ConnectResponse (a :: ConnectionType) where
 deriving instance Show (ConnectResponse a)
 deriving instance Eq (ConnectResponse a)
 
-
 instance Serialize (CRD a) => Serialize (ConnectResponse a) where
   put (ConnectResponse cid cs h crd) = putWithHeader 0x206 $ put cid >> put cs >> put h >> put crd
   get = getWithHeader 0x206 $ ConnectResponse <$> get <*> get <*> get <*> get
+
+
