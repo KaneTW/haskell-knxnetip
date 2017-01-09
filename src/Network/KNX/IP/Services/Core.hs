@@ -13,6 +13,7 @@ import Net.Types (IPv4, Mac)
 import Network.KNX.IP.Serialize
 import Network.KNX.IP.Types
 import Language.Haskell.TH
+import Network.KNX.IP.TH
 
 
 data HPAI where
@@ -41,20 +42,10 @@ data KNXMedium
   | KNXIP
   deriving (Show, Read, Eq, Ord, Typeable)
 
-instance Serialize KNXMedium where
-  put TP1 = putWord8 2
-  put PL110 = putWord8 4
-  put RF = putWord8 0x10
-  put KNXIP = putWord8 0x20
-
-  get = getWord8 >>= toMedium
-    where
-      toMedium 2 = pure TP1
-      toMedium 4 = pure PL110
-      toMedium 0x10 = pure RF
-      toMedium 0x20 = pure KNXIP
-      toMedium _ = fail "Unknown KNX medium ID"
-
+mkEnumSerialize ''KNXMedium [ ('TP1, 2)
+                            , ('PL110, 4)
+                            , ('RF, 0x10)
+                            , ('KNXIP, 0x20)]
 type DeviceStatus = Word8
 type KNXSerialNumber = Mac -- not really a mac but lazy atm
 
@@ -308,17 +299,9 @@ data KNXLayer
   | BusmonitorTunnel
   deriving (Show, Read, Eq, Ord, Typeable)
 
-instance Serialize KNXLayer where
-  put LinkLayerTunnel = putWord8 2
-  put RawTunnel = putWord8 4
-  put BusmonitorTunnel = putWord8 0x80
-
-  get = getWord8 >>= toLayer
-    where
-      toLayer 2 = pure LinkLayerTunnel
-      toLayer 4 = pure RawTunnel
-      toLayer 0x80 = pure BusmonitorTunnel
-      toLayer _ = fail "Unknown KNX tunneling layer"
+mkEnumSerialize ''KNXLayer [ ('LinkLayerTunnel, 2)
+                           , ('RawTunnel, 4)
+                           , ('BusmonitorTunnel, 0x80) ]
 
 data CRI (a :: ConnectionType) where
   DeviceMgmtCRI :: CRI 'DeviceMgmtConn
@@ -365,31 +348,12 @@ instance Serialize (CRI a) => Serialize (ConnectRequest a) where
   put (ConnectRequest h1 h2 cri) = putWithHeader 0x205 $ put h1 >> put h2 >> put cri
   get = getWithHeader 0x205 $ ConnectRequest <$> get <*> get <*> get
 
+newtype CommChannel = CommChannel Word8
+  deriving (Show, Read, Eq, Ord, Typeable, Serialize)
 
-data ConnectResponseStatus
-  = ConnectSuccess
-  | ErrConnectType
-  | ErrConnectOptions
-  | NoMoreConnections
-  deriving (Show, Read, Eq, Ord, Typeable)
-
-instance Serialize ConnectResponseStatus where
-  put ConnectSuccess = putWord8 0
-  put ErrConnectType = putWord8 0x22
-  put ErrConnectOptions = putWord8 0x23
-  put NoMoreConnections = putWord8 0x24
-
-  get = getWord8 >>= toStatus
-    where
-      toStatus 0 = pure ConnectSuccess
-      toStatus 0x22 = pure ErrConnectType
-      toStatus 0x23 = pure ErrConnectOptions
-      toStatus 0x24 = pure NoMoreConnections
-      toStatus _ = fail "Unknown connection status"
-  
 
 data ConnectResponse (a :: ConnectionType) where
-  ConnectResponse :: Word8 -> ConnectResponseStatus -> HPAI -> CRD a -> ConnectResponse a
+  ConnectResponse :: CommChannel -> KNXError -> HPAI -> CRD a -> ConnectResponse a
 
 deriving instance Show (ConnectResponse a)
 deriving instance Eq (ConnectResponse a)
@@ -399,3 +363,45 @@ instance Serialize (CRD a) => Serialize (ConnectResponse a) where
   get = getWithHeader 0x206 $ ConnectResponse <$> get <*> get <*> get <*> get
 
 
+data ConnectionStateRequest where
+  ConnectionStateRequest :: CommChannel -> HPAI -> ConnectionStateRequest
+
+deriving instance Show ConnectionStateRequest
+deriving instance Eq ConnectionStateRequest
+
+instance Serialize ConnectionStateRequest where
+  put (ConnectionStateRequest ch h) = putWithHeader 0x207 $ put ch >> putWord8 0 >> put h
+  get = getWithHeader 0x207 $ ConnectionStateRequest <$> get <* getWord8 <*> get
+
+
+data ConnectionStateResponse where
+  ConnectionStateResponse :: CommChannel -> KNXError -> ConnectionStateResponse
+
+deriving instance Show ConnectionStateResponse
+deriving instance Eq ConnectionStateResponse
+
+instance Serialize ConnectionStateResponse where
+  put (ConnectionStateResponse ch s) = putWithHeader 0x208 $ put ch >> put s
+  get = getWithHeader 0x208 $ ConnectionStateResponse <$> get <*> get
+
+
+data DisconnectRequest where
+  DisconnectRequest :: CommChannel -> HPAI -> DisconnectRequest
+
+deriving instance Show DisconnectRequest
+deriving instance Eq DisconnectRequest
+
+instance Serialize DisconnectRequest where
+  put (DisconnectRequest ch h) = putWithHeader 0x209 $ put ch >> putWord8 0 >> put h
+  get = getWithHeader 0x209 $ DisconnectRequest <$> get <* getWord8 <*> get
+
+
+data DisconnectResponse where
+  DisconnectResponse :: CommChannel -> KNXError -> DisconnectResponse
+
+deriving instance Show DisconnectResponse
+deriving instance Eq DisconnectResponse
+
+instance Serialize DisconnectResponse where
+  put (DisconnectResponse ch s) = putWithHeader 0x20a $ put ch >> put s
+  get = getWithHeader 0x20a $ DisconnectResponse <$> get <*> get

@@ -24,11 +24,13 @@ instance Eq a => EqProp a where (=-=) = eq
 
 derive makeArbitrary ''Mac
 derive makeArbitrary ''IPv4
+derive makeArbitrary ''KNXError
 derive makeArbitrary ''ServiceFamily
 derive makeArbitrary ''IndividualAddress
 derive makeArbitrary ''KNXMedium
 derive makeArbitrary ''NonEmpty
 derive makeArbitrary ''HPAI
+
 
 instance Arbitrary BS.ByteString where
   arbitrary = BS.pack <$> arbitrary
@@ -89,7 +91,6 @@ derive makeArbitrary ''DescriptionRequest
 derive makeArbitrary ''DescriptionResponse
 
 derive makeArbitrary ''KNXLayer
-derive makeArbitrary ''ConnectResponseStatus
 
 instance Arbitrary (CRI 'DeviceMgmtConn) where
   arbitrary = pure DeviceMgmtCRI
@@ -111,3 +112,9 @@ instance Arbitrary (CRD a) => Arbitrary (ConnectResponse a) where
               <*> arbitrary
 
   
+derive makeArbitrary ''CommChannel
+
+derive makeArbitrary ''ConnectionStateRequest
+derive makeArbitrary ''ConnectionStateResponse
+derive makeArbitrary ''DisconnectRequest
+derive makeArbitrary ''DisconnectResponse
