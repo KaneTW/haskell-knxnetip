@@ -1,0 +1,66 @@
+name:                knxnetip
+version:             0.1.0.0
+synopsis:            Initial project template from stack
+description:         Please see README.md
+homepage:            https://github.com/KaneTW/knxnetip#readme
+license:             BSD3
+license-file:        LICENSE
+author:              David Kraeutmann
+maintainer:          kane@kane.cx
+copyright:           2017 David Kraeutmann
+category:            Web
+build-type:          Simple
+extra-source-files:  README.md
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Network.KNX.IP.Types
+                       Network.KNX.IP.Services.Core
+                       Network.KNX.IP.Services.DeviceManagement
+                       Network.KNX.IP.Services.Tunneling
+                       Network.KNX.IP.Serialize
+  build-depends:       base >= 4.9 && < 5
+                     , bytestring
+                     , cereal
+                     , ip
+                     , template-haskell
+
+  default-language:    Haskell2010
+  default-extensions:  GADTs
+                       RecordWildCards
+                       TypeInType
+                       ScopedTypeVariables
+                       FlexibleInstances
+                       FlexibleContexts
+                       GeneralizedNewtypeDeriving
+                       StandaloneDeriving
+                       TemplateHaskell
+                       TypeFamilies
+                       UndecidableInstances
+                       InstanceSigs
+
+test-suite test-knxnetip
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     test
+  main-is:            Spec.hs
+  build-depends:      base
+                    , bytestring
+                    , derive
+                    , knxnetip
+                    , ip
+                    , hspec
+                    , QuickCheck >= 2.8
+                    , checkers >= 0.4
+                    , template-haskell
+  default-language:   Haskell2010
+  default-extensions: TypeInType
+                      FlexibleInstances
+                      FlexibleContexts
+                      ScopedTypeVariables
+                      TemplateHaskell
+  
+
+source-repository head
+  type:     git
+  location: https://github.com/KaneTW/knxnetip
