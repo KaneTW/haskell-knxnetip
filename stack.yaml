@@ -4,4 +4,5 @@ packages:
 - '.'
 extra-deps:
 - ip-0.8.7
+- network-multicast-0.2.0
 resolver: lts-7.14

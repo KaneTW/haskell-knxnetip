@@ -15,16 +15,22 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Network.KNX.IP.Types
+  exposed-modules:     Network.KNX.IP
+                       Network.KNX.IP.Types
                        Network.KNX.IP.Services.Core
                        Network.KNX.IP.Services.DeviceManagement
                        Network.KNX.IP.Services.Tunneling
                        Network.KNX.IP.Serialize
+  other-modules:       Network.KNX.IP.TH
   build-depends:       base >= 4.9 && < 5
                      , bytestring
                      , cereal
                      , ip
                      , template-haskell
+                     , mtl
+                     , network
+                     , stm
+                     , resourcet
 
   default-language:    Haskell2010
   default-extensions:  GADTs
