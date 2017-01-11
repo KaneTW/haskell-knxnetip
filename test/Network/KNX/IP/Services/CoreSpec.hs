@@ -12,7 +12,7 @@ spec = do
   describe "SearchRequest" $ do
     it "should parse the example correctly" $ do
       Right ex <- pure . runGet get $ BS.pack [6,0x10,2,1,0,0xe,8,1,192,168,200,12,0xe,0x57]
-      ex `shouldBe` SearchRequest (HPAIUDP (IPv4.fromOctets 192 168 200 12) 3671)
+      ex `shouldBe` SearchRequest (HPAI UDP (IPv4.fromOctets 192 168 200 12) 3671)
       
   describe "SearchResponse" $ do
     it "should parse the example correctly" $ do
@@ -23,7 +23,7 @@ spec = do
                                               ,0,0,0,0,0,0,0,0,0,0,0,0,0xa,2,2,1,3,1,4,1
                                               ,5,1]
       Just name <- pure $ nulPadded "MYHOME"
-      ex `shouldBe` SearchResponse (HPAIUDP (IPv4.fromOctets 192 168 200 12) 50100) 
+      ex `shouldBe` SearchResponse (HPAI UDP (IPv4.fromOctets 192 168 200 12) 50100) 
         (MkDeviceInfo TP1 1 (IndividualAddress 0x1100) 0x11
         (Mac.fromOctets 0 1 0x11 0x11 0x11 0x11) (IPv4.fromOctets 224 0 23 12)
         (Mac.fromOctets 0x45 0x49 0x42 0x6e 0x65 0x74) name)

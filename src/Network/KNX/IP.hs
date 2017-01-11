@@ -2,8 +2,13 @@ module Network.KNX.IP where
 
 import Control.Concurrent
 import Control.Concurrent.STM
-import qualified Control.Monad.State as S
-import Control.Monad.IO.Class
+import Control.Exception.Base
+import Control.Monad.Base
+import Control.Monad.Catch
+import Control.Monad.Error.Class
+import Control.Monad.Reader
+import Control.Monad.State
+import Control.Monad.Trans.Control
 import Control.Monad.Trans.Resource
 import Control.Monad.STM
 import qualified Data.ByteString as BS
@@ -11,89 +16,135 @@ import Data.Typeable
 import qualified Net.IPv4 as IPv4
 import qualified Net.IPv4.String as IPv4S
 import Net.Types
+import Network.Multicast
+import Network.BSD
 import Network.Socket hiding (send, sendTo, recv, recvFrom)
 import Network.Socket.ByteString
-import Network.KNX.IP.Serialize
+import qualified Network.KNX.IP.Serialize as S
 import Network.KNX.IP.Types
 import Network.KNX.IP.Services.Core
 import System.Timeout
 
-data DiscoverySettings = DiscoverySettings {
+data KNXSettings = KNXSettings {
+  bindMulticast :: Bool,
+  bindHost :: IPv4,
+  bindPort :: PortNumber,
+  discoveryMulticast :: Bool,
   discoveryHost :: IPv4,
   discoveryPort :: PortNumber,
   discoveryTimeout :: Int }
   deriving (Show, Eq, Ord, Typeable)
 
-defaultDiscoverySettings :: DiscoverySettings
-defaultDiscoverySettings = DiscoverySettings (IPv4.fromOctets 224 0 23 12) 3671 (2*1000*1000)
+defaultKNXSettings :: KNXSettings
+defaultKNXSettings = KNXSettings {
+  bindMulticast = True,
+  bindHost = IPv4.fromOctets 224 0 23 12,
+  bindPort = 3671,
+  discoveryMulticast = True,
+  discoveryHost = IPv4.fromOctets 224 0 23 12,
+  discoveryPort = 3671,
+  discoveryTimeout = 2*1000*1000
+  }
 
 data KNXState = KNXState {
+  serverControlEndpoint :: HPAI
   }
   deriving (Show, Eq, Ord, Typeable)
 
-newtype KNXM a = KNXM (S.StateT KNXState IO a)
-  deriving ( Functor, Applicative, Monad, S.MonadIO)
+type MonadKNX m = (MonadResourceBase m, MonadReader KNXSettings m, MonadState KNXState m)
 
 hostAddrToIPv4 :: HostAddress -> IPv4
 hostAddrToIPv4 addr = let (a,b,c,d) = hostAddressToTuple addr
                       in IPv4.fromOctets a b c d
 
-sockAddrToHPAI :: Socket -> SockAddr -> HPAI
-sockAddrToHPAI (MkSocket _ _ Stream _ _) (SockAddrInet port addr) = HPAITCP (hostAddrToIPv4 addr) (fromIntegral port)
-sockAddrToHPAI (MkSocket _ _ Datagram _ _) (SockAddrInet port addr) = HPAIUDP (hostAddrToIPv4 addr) (fromIntegral port)
+iPv4ToHostAddr :: IPv4 -> HostAddress
+iPv4ToHostAddr = tupleToHostAddress . IPv4.toOctets
 
---TODO: leaking sockets
-discoverServers :: DiscoverySettings -> IO [SearchResponse]
-discoverServers DiscoverySettings{..} = runResourceT $ do
-  (_, recvr) <- allocate (socket AF_INET Datagram defaultProtocol) close
-  (_, sock) <- allocate (socket AF_INET Datagram defaultProtocol) close
+sockAddrToHPAI :: Socket -> SockAddr -> HPAI
+sockAddrToHPAI (MkSocket _ _ proto _ _) (SockAddrInet port addr) = HPAI proto' (hostAddrToIPv4 addr) (fromIntegral port)
+  where
+    proto' = case proto of
+      Stream -> TCP
+      Datagram -> UDP
+      _ -> error "Unsupported socket"
+
+hPAIToSockAddr :: HPAI -> SockAddr
+hPAIToSockAddr (HPAI _ addr port) = SockAddrInet (fromIntegral port) (iPv4ToHostAddr addr)
+
+mkSocketFromHPAI :: HPAI -> IO (Socket, SockAddr)
+mkSocketFromHPAI h@(HPAI proto addr port) = do
+  let sockAddr = hPAIToSockAddr h
+  sock <- case proto of
+    TCP -> do
+      sock <- getProtocolNumber "tcp" >>= socket AF_INET Stream
+      connect sock sockAddr
+      return sock
+    UDP -> getProtocolNumber "udp" >>= socket AF_INET Datagram
+  return (sock, sockAddr)
+
+
+
+--TODO: outer monad
+discoverServers :: KNXSettings -> IO [SearchResponse]
+discoverServers KNXSettings{..} = runResourceT $ do
+  (_, recvr) <- allocate mkReceiverSocket close
+  (_, (sock, addr)) <- allocate mkSenderSocket (close . fst)
   liftIO $ do
-    bind recvr (SockAddrInet aNY_PORT (tupleToHostAddress (10,1,1,13)))
     recvAddr <- getSocketName recvr
     
     response <- newTVarIO []
-    progress <- newTVarIO initial
-    
     lock <- newEmptyMVar
-    tid <- forkFinally (timeout discoveryTimeout $ getResponses recvr response progress BS.empty) (cleanUp response progress lock)
     
-    let addr = SockAddrInet 3671 (tupleToHostAddress (10,1,5,136))
-    sendAllTo sock (runPut . put . SearchRequest $ sockAddrToHPAI recvr recvAddr) addr
+    forkFinally (timeout discoveryTimeout $ getResponses recvr response) (cleanUp lock)
+
+    let req = SearchRequest $ sockAddrToHPAI recvr recvAddr
+
+    sendAllTo sock (S.runPut $ S.put req) addr
 
     takeMVar lock
     atomically $ readTVar response
 
   where
-    initial = runGetChunk (get :: Get SearchResponse) Nothing BS.empty
-
-    cleanUp response progress lock _ = do
-      res <- atomically $ readTVar progress
-      case res of
-        Partial f -> do
-          let (Done r _) = f BS.empty
-          atomically $ modifyTVar' response (r:)
-        _ -> return ()
-
-      putMVar lock ()
+    mkReceiverSocket
+      | bindMulticast
+      = multicastReceiver (IPv4S.encode bindHost) bindPort
+      | otherwise
+      = do
+          sock <- getProtocolNumber "udp" >>= socket AF_INET Datagram
+          bind sock (SockAddrInet bindPort $ iPv4ToHostAddr bindHost)
+          return sock
+    mkSenderSocket
+      | discoveryMulticast
+      = multicastSender (IPv4S.encode discoveryHost) discoveryPort
+      | otherwise
+      = mkSocketFromHPAI (HPAI UDP discoveryHost (fromIntegral discoveryPort))
     
-    getResponses sock response progress prev
-      = atomically (readTVar progress) >>= feedResult
-      where
-        --TODO: no way to distinguish between proper parse errors and anything else
-        feedResult (Fail err _) = ioError (userError err)
-        feedResult x@(Partial f) = do
-          atomically $ swapTVar progress x
-          (bs, _) <- recvFrom sock 1024
-          feedResult (f bs)
-        feedResult (Done r bs) = do
-          atomically $ do
-            swapTVar progress initial
-            modifyTVar' response (r:)
-          getResponses sock response progress bs
-      
-    emptyChan chan = do
-      ele <- readTChan chan
-      (ele:) <$> emptyChan chan
+    cleanUp lock _ = do
+      putMVar lock ()
 
+    -- UDP only. TCP requires stream handling
+    getResponses sock response = do
+      (bs, _) <- recvFrom sock 2048
+      case S.runGet S.get bs of
+        Right r -> atomically $ modifyTVar' response (r:)
+        Left err -> return ()
+        
+      getResponses sock response
 
+describeServer :: SearchResponse -> IO DescriptionResponse
+describeServer (SearchResponse h _ _) = do
+  (sender, addr) <- mkSocketFromHPAI h
+
+  recvr <- getProtocolNumber "udp" >>= socket AF_INET Datagram
+  bind recvr (SockAddrInet aNY_PORT 0)
+  recvrAddr <- getSocketName recvr
+
+  let req = DescriptionRequest $ sockAddrToHPAI recvr recvrAddr
+  sendAllTo sender (S.runPut $ S.put req) addr
+
+  --TODO: timeout
+  (bs, _) <- recvFrom recvr 2048
+  case S.runGet S.get bs of
+    Right r -> return r
+    Left err -> ioError (userError err)
 

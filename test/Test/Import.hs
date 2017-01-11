@@ -29,6 +29,7 @@ derive makeArbitrary ''ServiceFamily
 derive makeArbitrary ''IndividualAddress
 derive makeArbitrary ''KNXMedium
 derive makeArbitrary ''NonEmpty
+derive makeArbitrary ''IPTransport
 derive makeArbitrary ''HPAI
 
 

@@ -1,6 +1,7 @@
 module Network.KNX.IP.Services.Core where
 
 import Control.Applicative
+import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.List.NonEmpty (NonEmpty(..))
@@ -15,25 +16,27 @@ import Network.KNX.IP.Types
 import Language.Haskell.TH
 import Network.KNX.IP.TH
 
+data IPTransport = UDP | TCP
+  deriving (Show, Read, Eq, Ord, Typeable)
+
+mkEnumSerialize ''IPTransport [ ('UDP, 1)
+                              , ('TCP, 2) ]
 
 data HPAI where
-  HPAIUDP, HPAITCP :: IPv4 -> Word16 -> HPAI
+  HPAI :: IPTransport -> IPv4 -> Word16 -> HPAI
   deriving (Show, Read, Eq, Ord, Typeable)
 
 instance Serialize HPAI where
-  put (HPAIUDP addr port) = putTagged 1 $ do
+  put (HPAI proto addr port) = do
+    putWord8 8
+    put proto
     put addr
     putWord16be port
 
-  put (HPAITCP addr port) = putTagged 2 $ do
-    put addr
-    putWord16be port
-
-  get = getTagged' getHPAI
-    where
-      getHPAI 1 = HPAIUDP <$> get <*> getWord16be
-      getHPAI 2 = HPAITCP <$> get <*> getWord16be
-      getHPAI _ = fail "Incorrect tag"
+  get = isolate 8 $ do
+    len <- getWord8
+    when (len /= 8) $ fail "Incorrect HPAI length"
+    HPAI <$> get <*> get <*> get
 
 data KNXMedium
   = TP1
@@ -45,7 +48,7 @@ data KNXMedium
 mkEnumSerialize ''KNXMedium [ ('TP1, 2)
                             , ('PL110, 4)
                             , ('RF, 0x10)
-                            , ('KNXIP, 0x20)]
+                            , ('KNXIP, 0x20) ]
 type DeviceStatus = Word8
 type KNXSerialNumber = Mac -- not really a mac but lazy atm
 
